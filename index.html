@@ -1,0 +1,16 @@
+<div class="ai-advice">
+    <h3>Советы от AI-ассистента</h3>
+    <div id="ai-advice-text">Загрузка рекомендаций...</div>
+</div>
+
+<script>
+    fetch('/api/advice')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('ai-advice-text').innerText = data.advice;
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            document.getElementById('ai-advice-text').innerText = 'Не удалось загрузить советы.';
+        });
+</script>

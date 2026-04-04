@@ -2,7 +2,7 @@ import os
 import time
 import csv
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, Response
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -21,7 +21,6 @@ def init_db(retries=5, delay=3):
         try:
             conn = get_db_connection()
             with conn.cursor() as cur:
-                # Создаём таблицу с категорией, если её ещё нет
                 cur.execute('''
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
@@ -41,26 +40,34 @@ def init_db(retries=5, delay=3):
             time.sleep(delay)
     raise Exception("Could not initialize database after retries")
 
+def get_default_dates():
+    today = datetime.now().date()
+    end_date = today
+    start_date = today - timedelta(days=30)
+    return start_date.isoformat(), end_date.isoformat()
+
 @app.route('/')
 def index():
-    # Получаем параметры фильтра из URL
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
+    trans_type = request.args.get('type', '')
     category_filter = request.args.get('category', '')
+    
+    default_start, default_end = get_default_dates()
+    if not start_date:
+        start_date = default_start
+    if not end_date:
+        end_date = default_end
     
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Базовый запрос
-    query = 'SELECT * FROM transactions WHERE 1=1'
-    params = []
+    query = 'SELECT * FROM transactions WHERE date >= %s AND date <= %s'
+    params = [start_date, end_date + ' 23:59:59']
     
-    if start_date:
-        query += ' AND date >= %s'
-        params.append(start_date)
-    if end_date:
-        query += ' AND date <= %s'
-        params.append(end_date + ' 23:59:59')
+    if trans_type:
+        query += ' AND type = %s'
+        params.append(trans_type)
     if category_filter:
         query += ' AND category = %s'
         params.append(category_filter)
@@ -69,17 +76,12 @@ def index():
     cursor.execute(query, params)
     transactions = cursor.fetchall()
     
-    # Расчёт баланса за отфильтрованный период
     balance = 0
     for t in transactions:
         if t['type'] == 'income':
             balance += t['amount']
         else:
             balance -= t['amount']
-    
-    # Список уникальных категорий для фильтра
-    cursor.execute("SELECT DISTINCT category FROM transactions ORDER BY category")
-    categories = [row['category'] for row in cursor.fetchall()]
     
     conn.close()
     
@@ -88,25 +90,27 @@ def index():
                            balance=balance,
                            start_date=start_date,
                            end_date=end_date,
+                           selected_type=trans_type,
                            selected_category=category_filter,
-                           categories=categories)
+                           today=datetime.now().date().isoformat())
 
 @app.route('/add', methods=['POST'])
 def add_transaction():
     amount = float(request.form['amount'])
     description = request.form['description']
     trans_type = request.form['type']
-    category = request.form.get('category', 'other')
+    category = request.form['category']
+    transaction_date = request.form.get('date', datetime.now().date().isoformat())
     
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
-            'INSERT INTO transactions (amount, description, type, category) VALUES (%s, %s, %s, %s)',
-            (amount, description, trans_type, category)
+            'INSERT INTO transactions (amount, description, type, category, date) VALUES (%s, %s, %s, %s, %s)',
+            (amount, description, trans_type, category, transaction_date)
         )
         conn.commit()
     conn.close()
-    return redirect(url_for('index', **request.args))
+    return redirect(url_for('index', **{k: v for k, v in request.args.items() if k in ['start_date', 'end_date', 'type', 'category']}))
 
 @app.route('/delete/<int:id>')
 def delete_transaction(id):
@@ -115,25 +119,27 @@ def delete_transaction(id):
         cur.execute('DELETE FROM transactions WHERE id = %s', (id,))
         conn.commit()
     conn.close()
-    # Сохраняем параметры фильтра при редиректе
     return redirect(url_for('index', **request.args))
 
 @app.route('/export/csv')
 def export_csv():
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
+    trans_type = request.args.get('type', '')
     category_filter = request.args.get('category', '')
+    
+    if not start_date or not end_date:
+        default_start, default_end = get_default_dates()
+        start_date = start_date or default_start
+        end_date = end_date or default_end
     
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    query = 'SELECT * FROM transactions WHERE 1=1'
-    params = []
-    if start_date:
-        query += ' AND date >= %s'
-        params.append(start_date)
-    if end_date:
-        query += ' AND date <= %s'
-        params.append(end_date + ' 23:59:59')
+    query = 'SELECT * FROM transactions WHERE date >= %s AND date <= %s'
+    params = [start_date, end_date + ' 23:59:59']
+    if trans_type:
+        query += ' AND type = %s'
+        params.append(trans_type)
     if category_filter:
         query += ' AND category = %s'
         params.append(category_filter)
@@ -142,12 +148,15 @@ def export_csv():
     transactions = cursor.fetchall()
     conn.close()
     
-    # Создаём CSV
     si = StringIO()
-    writer = csv.writer(si)
-    writer.writerow(['ID', 'Amount', 'Description', 'Type', 'Category', 'Date'])
+    si.write('\ufeff')
+    writer = csv.writer(si, delimiter=';')
+    writer.writerow(['ID', 'Сумма', 'Описание', 'Тип', 'Категория', 'Дата'])
     for t in transactions:
-        writer.writerow([t['id'], t['amount'], t['description'], t['type'], t['category'], t['date']])
+        date_str = t['date'].strftime('%d.%m.%Y %H:%M') if isinstance(t['date'], datetime) else str(t['date'])
+        writer.writerow([t['id'], t['amount'], t['description'], 
+                         'Доход' if t['type'] == 'income' else 'Расход',
+                         t['category'], date_str])
     
     output = si.getvalue()
     return Response(output, mimetype='text/csv',

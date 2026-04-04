@@ -1,120 +1,280 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Expense Tracker</title>
+    <meta charset="UTF-8">
+    <title>Финансовый трекер</title>
     <style>
-        body { font-family: Arial; margin: 40px; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .balance { font-size: 24px; font-weight: bold; margin-bottom: 20px; }
-        form { margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 8px; }
-        input, select, button { margin: 5px; padding: 8px; }
-        .delete-btn { background-color: #ff4444; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; }
-        .delete-btn:hover { background-color: #cc0000; }
-        .filters { margin-bottom: 20px; padding: 15px; background: #eef; border-radius: 8px; }
-        .export-btn { background-color: #4CAF50; color: white; padding: 10px; text-decoration: none; display: inline-block; margin-top: 10px; border-radius: 4px; }
-        canvas { max-width: 100%; margin-top: 20px; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f2f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 25px;
+            position: relative;
+        }
+        h1 { 
+            color: #2c3e50; 
+            border-left: 5px solid #3498db; 
+            padding-left: 15px; 
+            margin-top: 0; 
+            margin-bottom: 20px;
+        }
+        .balance {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            font-size: 24px;
+            font-weight: bold;
+            background: #ecf0f1;
+            padding: 10px 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .filters, .add-form {
+            background: #f9f9f9;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .filters h3, .add-form h3 { margin-top: 0; color: #2c3e50; }
+        .filter-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+        .filter-group label {
+            display: flex;
+            flex-direction: column;
+            font-size: 0.9em;
+            color: #555;
+        }
+        input, select, button {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background-color: #2980b9; }
+        .reset-link { margin-left: 15px; text-decoration: none; color: #e74c3c; }
+        .export-btn {
+            background-color: #27ae60;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: white;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+        .export-btn:hover { background-color: #219653; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px 8px;
+            text-align: left;
+            vertical-align: middle;
+        }
+        th { background-color: #34495e; color: white; font-weight: 600; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
+        tr:hover { background-color: #eef; }
+        .delete-btn {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .delete-btn:hover { background-color: #c0392b; }
+        canvas { max-width: 100%; margin-top: 30px; background: #fff; border-radius: 12px; padding: 10px; }
+        @media (max-width: 768px) {
+            .filter-group { flex-direction: column; align-items: stretch; }
+            .balance { position: static; margin-bottom: 20px; text-align: center; }
+            th, td { padding: 8px 4px; font-size: 12px; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h1>Expense Tracker</h1>
-    
+<div class="container">
+    <h1>Финансовый трекер</h1>
     <div class="balance">
-        Balance: {{ balance }} ₽
+        Баланс: {{ balance }} ₽
     </div>
 
     <div class="filters">
-        <h3>Filter transactions</h3>
+        <h3>Фильтр транзакций</h3>
         <form method="GET" action="/">
-            <label>From: <input type="date" name="start_date" value="{{ start_date }}"></label>
-            <label>To: <input type="date" name="end_date" value="{{ end_date }}"></label>
-            <label>Category:
-                <select name="category">
-                    <option value="">All</option>
-                    {% for cat in categories %}
-                    <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <button type="submit">Apply filter</button>
-            <a href="/">Reset</a>
+            <div class="filter-group">
+                <label>с: <input type="date" name="start_date" value="{{ start_date }}"></label>
+                <label>по: <input type="date" name="end_date" value="{{ end_date }}"></label>
+                <label>Тип:
+                    <select name="type" id="filterTypeSelect">
+                        <option value="">Все</option>
+                        <option value="income" {% if selected_type == 'income' %}selected{% endif %}>Доходы</option>
+                        <option value="expense" {% if selected_type == 'expense' %}selected{% endif %}>Расходы</option>
+                    </select>
+                </label>
+                <label>Категория:
+                    <select name="category" id="filterCategorySelect">
+                        <option value="">Все</option>
+                    </select>
+                </label>
+                <button type="submit">Применить</button>
+                <a href="/" class="reset-link">Сбросить</a>
+            </div>
         </form>
     </div>
 
-    <h2>Add transaction</h2>
-    <form method="POST" action="/add">
-        <input type="number" step="0.01" name="amount" placeholder="Amount" required>
-        <input type="text" name="description" placeholder="Description" required>
-        <select name="type">
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-        </select>
-        <select name="category">
-            <option value="food">Food</option>
-            <option value="transport">Transport</option>
-            <option value="entertainment">Entertainment</option>
-            <option value="salary">Salary</option>
-            <option value="other">Other</option>
-        </select>
-        <button type="submit">Add</button>
-    </form>
+    <div class="add-form">
+        <h3>Добавить операцию</h3>
+        <form method="POST" action="/add" id="addForm">
+            <div class="filter-group">
+                <label>Дата: <input type="date" name="date" value="{{ today }}"></label>
+                <label>Сумма: <input type="number" step="0.01" name="amount" placeholder="0.00" required></label>
+                <label>Описание: <input type="text" name="description" placeholder="например, зарплата, обед" required></label>
+                <label>Тип:
+                    <select name="type" id="typeSelect" required>
+                        <option value="income">Доход</option>
+                        <option value="expense">Расход</option>
+                    </select>
+                </label>
+                <label>Категория:
+                    <select name="category" id="categorySelect" required>
+                    </select>
+                </label>
+                <button type="submit">Добавить</button>
+            </div>
+        </form>
+    </div>
 
-    <h2>History</h2>
-    <a href="/export/csv?{{ request.query_string.decode() }}" class="export-btn">Export to CSV</a>
-    <table>
-        <tr>
-            <th>Date</th>
-            <th>Description</th>
-            <th>Category</th>
-            <th>Amount</th>
-            <th>Type</th>
-            <th>Action</th>
-        </tr>
-        {% for t in transactions %}
-        <tr>
-            <td>{{ t.date }}</td>
-            <td>{{ t.description }}</td>
-            <td>{{ t.category }}</td>
-            <td>{{ t.amount }}</td>
-            <td>{{ t.type }}</td>
-            <td><a href="/delete/{{ t.id }}?{{ request.query_string.decode() }}" class="delete-btn" onclick="return confirm('Delete this transaction?')">Delete</a></td>
-        </tr>
-        {% endfor %}
-    </table>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>История операций</h2>
+        <a href="/export/csv?{{ request.query_string.decode() }}" class="export-btn">Экспорт в CSV</a>
+    </div>
+    <div style="overflow-x: auto;">
+        <table id="transactionsTable">
+            <thead>
+                <tr>
+                    <th>Дата</th><th>Описание</th><th>Категория</th><th>Сумма (₽)</th><th>Тип</th><th>Действие</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in transactions %}
+                <tr>
+                    <td>{{ t.date.strftime('%d.%m.%Y %H:%M') if t.date else t.date }}</td>
+                    <td>{{ t.description }}</td>
+                    <td>{{ t.category }}</td>
+                    <td>{{ t.amount }}</td>
+                    <td>{% if t.type == 'income' %}Доход{% else %}Расход{% endif %}</td>
+                    <td><a href="/delete/{{ t.id }}?{{ request.query_string.decode() }}" class="delete-btn" onclick="return confirm('Удалить транзакцию?')">Удалить</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
-    <canvas id="expenseChart" width="400" height="200"></canvas>
-    <script>
-        // Готовим данные для графика расходов по дням
-        const transactions = {{ transactions | tojson }};
-        const expensesByDate = {};
-        transactions.forEach(t => {
-            if (t.type === 'expense') {
-                const date = t.date.split(' ')[0];
-                expensesByDate[date] = (expensesByDate[date] || 0) + t.amount;
-            }
+    <canvas id="expenseChart" width="800" height="300"></canvas>
+</div>
+
+<script>
+    const incomeCategories = [
+        {value: 'salary', label: 'Зарплата'},
+        {value: 'freelance', label: 'Подработка'},
+        {value: 'bonus', label: 'Премия'},
+        {value: 'gift', label: 'Подарок'},
+        {value: 'other_income', label: 'Другое'}
+    ];
+    const expenseCategories = [
+        {value: 'food', label: 'Еда'},
+        {value: 'transport', label: 'Транспорт'},
+        {value: 'entertainment', label: 'Развлечения'},
+        {value: 'health', label: 'Здоровье'},
+        {value: 'utilities', label: 'ЖКХ'},
+        {value: 'other_expense', label: 'Другое'}
+    ];
+
+    function updateAddCategories() {
+        const type = document.getElementById('typeSelect').value;
+        const catSelect = document.getElementById('categorySelect');
+        const categories = (type === 'income') ? incomeCategories : expenseCategories;
+        catSelect.innerHTML = '';
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.value;
+            option.textContent = cat.label;
+            catSelect.appendChild(option);
         });
-        const labels = Object.keys(expensesByDate).sort();
-        const data = labels.map(d => expensesByDate[d]);
-        
-        const ctx = document.getElementById('expenseChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Expenses per day',
-                    data: data,
-                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                scales: { y: { beginAtZero: true } }
-            }
+    }
+
+    function updateFilterCategories() {
+        const type = document.getElementById('filterTypeSelect').value;
+        const catSelect = document.getElementById('filterCategorySelect');
+        let categories = [];
+        if (type === 'income') {
+            categories = incomeCategories;
+        } else if (type === 'expense') {
+            categories = expenseCategories;
+        } else {
+            const all = [...incomeCategories, ...expenseCategories];
+            const unique = new Map();
+            all.forEach(c => unique.set(c.value, c));
+            categories = Array.from(unique.values());
+        }
+        catSelect.innerHTML = '<option value="">Все</option>';
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.value;
+            option.textContent = cat.label;
+            if (cat.value === '{{ selected_category }}') option.selected = true;
+            catSelect.appendChild(option);
         });
-    </script>
+    }
+
+    document.getElementById('typeSelect').addEventListener('change', updateAddCategories);
+    document.getElementById('filterTypeSelect').addEventListener('change', updateFilterCategories);
+    updateAddCategories();
+    updateFilterCategories();
+
+    const transactions = {{ transactions | tojson }};
+    const expensesByDate = {};
+    transactions.forEach(t => {
+        if (t.type === 'expense') {
+            const date = t.date.split(' ')[0];
+            expensesByDate[date] = (expensesByDate[date] || 0) + t.amount;
+        }
+    });
+    const labels = Object.keys(expensesByDate).sort();
+    const data = labels.map(d => expensesByDate[d]);
+    const ctx = document.getElementById('expenseChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ label: 'Расходы по дням (₽)', data: data, backgroundColor: 'rgba(231, 76, 60, 0.6)', borderColor: '#c0392b', borderWidth: 1 }] },
+        options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Сумма (₽)' } }, x: { title: { display: true, text: 'Дата' } } } }
+    });
+</script>
 </body>
 </html>
