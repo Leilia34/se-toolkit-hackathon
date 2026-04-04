@@ -1,6 +1,9 @@
 import os
 import time
-from flask import Flask, render_template, request, redirect, url_for
+import csv
+from io import StringIO
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, Response
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import OperationalError
@@ -18,12 +21,14 @@ def init_db(retries=5, delay=3):
         try:
             conn = get_db_connection()
             with conn.cursor() as cur:
+                # Создаём таблицу с категорией, если её ещё нет
                 cur.execute('''
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
                         amount REAL NOT NULL,
                         description TEXT NOT NULL,
                         type TEXT CHECK(type IN ('income', 'expense')) NOT NULL,
+                        category VARCHAR(50) DEFAULT 'other',
                         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
@@ -38,35 +43,115 @@ def init_db(retries=5, delay=3):
 
 @app.route('/')
 def index():
-    conn = get_db_connection()
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute('SELECT * FROM transactions ORDER BY date DESC')
-        transactions = cur.fetchall()
+    # Получаем параметры фильтра из URL
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    category_filter = request.args.get('category', '')
     
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Базовый запрос
+    query = 'SELECT * FROM transactions WHERE 1=1'
+    params = []
+    
+    if start_date:
+        query += ' AND date >= %s'
+        params.append(start_date)
+    if end_date:
+        query += ' AND date <= %s'
+        params.append(end_date + ' 23:59:59')
+    if category_filter:
+        query += ' AND category = %s'
+        params.append(category_filter)
+    
+    query += ' ORDER BY date DESC'
+    cursor.execute(query, params)
+    transactions = cursor.fetchall()
+    
+    # Расчёт баланса за отфильтрованный период
     balance = 0
     for t in transactions:
         if t['type'] == 'income':
             balance += t['amount']
         else:
             balance -= t['amount']
+    
+    # Список уникальных категорий для фильтра
+    cursor.execute("SELECT DISTINCT category FROM transactions ORDER BY category")
+    categories = [row['category'] for row in cursor.fetchall()]
+    
     conn.close()
-    return render_template('index.html', transactions=transactions, balance=balance)
+    
+    return render_template('index.html',
+                           transactions=transactions,
+                           balance=balance,
+                           start_date=start_date,
+                           end_date=end_date,
+                           selected_category=category_filter,
+                           categories=categories)
 
 @app.route('/add', methods=['POST'])
 def add_transaction():
     amount = float(request.form['amount'])
     description = request.form['description']
     trans_type = request.form['type']
+    category = request.form.get('category', 'other')
     
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
-            'INSERT INTO transactions (amount, description, type) VALUES (%s, %s, %s)',
-            (amount, description, trans_type)
+            'INSERT INTO transactions (amount, description, type, category) VALUES (%s, %s, %s, %s)',
+            (amount, description, trans_type, category)
         )
         conn.commit()
     conn.close()
-    return redirect(url_for('index'))
+    return redirect(url_for('index', **request.args))
+
+@app.route('/delete/<int:id>')
+def delete_transaction(id):
+    conn = get_db_connection()
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM transactions WHERE id = %s', (id,))
+        conn.commit()
+    conn.close()
+    # Сохраняем параметры фильтра при редиректе
+    return redirect(url_for('index', **request.args))
+
+@app.route('/export/csv')
+def export_csv():
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    category_filter = request.args.get('category', '')
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    query = 'SELECT * FROM transactions WHERE 1=1'
+    params = []
+    if start_date:
+        query += ' AND date >= %s'
+        params.append(start_date)
+    if end_date:
+        query += ' AND date <= %s'
+        params.append(end_date + ' 23:59:59')
+    if category_filter:
+        query += ' AND category = %s'
+        params.append(category_filter)
+    query += ' ORDER BY date DESC'
+    cursor.execute(query, params)
+    transactions = cursor.fetchall()
+    conn.close()
+    
+    # Создаём CSV
+    si = StringIO()
+    writer = csv.writer(si)
+    writer.writerow(['ID', 'Amount', 'Description', 'Type', 'Category', 'Date'])
+    for t in transactions:
+        writer.writerow([t['id'], t['amount'], t['description'], t['type'], t['category'], t['date']])
+    
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=transactions.csv'})
 
 if __name__ == '__main__':
     init_db()

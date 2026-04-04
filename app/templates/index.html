@@ -10,13 +10,37 @@
         .balance { font-size: 24px; font-weight: bold; margin-bottom: 20px; }
         form { margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 8px; }
         input, select, button { margin: 5px; padding: 8px; }
+        .delete-btn { background-color: #ff4444; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; }
+        .delete-btn:hover { background-color: #cc0000; }
+        .filters { margin-bottom: 20px; padding: 15px; background: #eef; border-radius: 8px; }
+        .export-btn { background-color: #4CAF50; color: white; padding: 10px; text-decoration: none; display: inline-block; margin-top: 10px; border-radius: 4px; }
+        canvas { max-width: 100%; margin-top: 20px; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <h1>Expense Tracker</h1>
     
     <div class="balance">
         Balance: {{ balance }} ₽
+    </div>
+
+    <div class="filters">
+        <h3>Filter transactions</h3>
+        <form method="GET" action="/">
+            <label>From: <input type="date" name="start_date" value="{{ start_date }}"></label>
+            <label>To: <input type="date" name="end_date" value="{{ end_date }}"></label>
+            <label>Category:
+                <select name="category">
+                    <option value="">All</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit">Apply filter</button>
+            <a href="/">Reset</a>
+        </form>
     </div>
 
     <h2>Add transaction</h2>
@@ -27,25 +51,70 @@
             <option value="income">Income</option>
             <option value="expense">Expense</option>
         </select>
+        <select name="category">
+            <option value="food">Food</option>
+            <option value="transport">Transport</option>
+            <option value="entertainment">Entertainment</option>
+            <option value="salary">Salary</option>
+            <option value="other">Other</option>
+        </select>
         <button type="submit">Add</button>
     </form>
 
     <h2>History</h2>
+    <a href="/export/csv?{{ request.query_string.decode() }}" class="export-btn">Export to CSV</a>
     <table>
         <tr>
             <th>Date</th>
             <th>Description</th>
+            <th>Category</th>
             <th>Amount</th>
             <th>Type</th>
+            <th>Action</th>
         </tr>
         {% for t in transactions %}
         <tr>
             <td>{{ t.date }}</td>
             <td>{{ t.description }}</td>
+            <td>{{ t.category }}</td>
             <td>{{ t.amount }}</td>
             <td>{{ t.type }}</td>
+            <td><a href="/delete/{{ t.id }}?{{ request.query_string.decode() }}" class="delete-btn" onclick="return confirm('Delete this transaction?')">Delete</a></td>
         </tr>
         {% endfor %}
     </table>
+
+    <canvas id="expenseChart" width="400" height="200"></canvas>
+    <script>
+        // Готовим данные для графика расходов по дням
+        const transactions = {{ transactions | tojson }};
+        const expensesByDate = {};
+        transactions.forEach(t => {
+            if (t.type === 'expense') {
+                const date = t.date.split(' ')[0];
+                expensesByDate[date] = (expensesByDate[date] || 0) + t.amount;
+            }
+        });
+        const labels = Object.keys(expensesByDate).sort();
+        const data = labels.map(d => expensesByDate[d]);
+        
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Expenses per day',
+                    data: data,
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    </script>
 </body>
 </html>
