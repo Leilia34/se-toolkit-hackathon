@@ -30,6 +30,7 @@ services:
       dockerfile: Dockerfile.bot
     environment:
       DATABASE_URL: postgresql://tracker:tracker123@db:5432/expenses
+      BOT_TOKEN: 8660176046:AAFgh3bPfUtm8EINKtqxSZOLXs5x2iOV6Iw
     depends_on:
       - db
 

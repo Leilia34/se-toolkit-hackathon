@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 BOT_TOKEN = "8660176046:AAFgh3bPfUtm8EINKtqxSZOLXs5x2iOV6Iw"
 
 def get_db_connection():
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@localhost:5432/expenses')
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@db:5432/expenses')
     return psycopg2.connect(DATABASE_URL)
 
 # Инициализация таблиц (если нет)
