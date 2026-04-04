@@ -1,64 +1,74 @@
-from flask import Flask, render_template, request, redirect, url_for
-import sqlite3
-from datetime import datetime
 import os
+import time
+from flask import Flask, render_template, request, redirect, url_for
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2 import OperationalError
 
 app = Flask(__name__)
 
-# Путь к базе данных
-DATABASE = 'transactions.db'
-
-def get_db():
-    """Возвращает соединение с БД"""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+def get_db_connection():
+    conn = psycopg2.connect(
+        os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@db:5432/expenses')
+    )
     return conn
 
-def init_db():
-    """Создаёт таблицу, если её нет"""
-    with get_db() as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                amount REAL NOT NULL,
-                description TEXT NOT NULL,
-                type TEXT CHECK(type IN ('income', 'expense')) NOT NULL,
-                date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+def init_db(retries=5, delay=3):
+    for i in range(retries):
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS transactions (
+                        id SERIAL PRIMARY KEY,
+                        amount REAL NOT NULL,
+                        description TEXT NOT NULL,
+                        type TEXT CHECK(type IN ('income', 'expense')) NOT NULL,
+                        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                conn.commit()
+            conn.close()
+            print("Database initialized successfully")
+            return
+        except OperationalError as e:
+            print(f"Database not ready (attempt {i+1}/{retries}): {e}")
+            time.sleep(delay)
+    raise Exception("Could not initialize database after retries")
 
 @app.route('/')
 def index():
-    """Главная страница: показывает все транзакции и баланс"""
-    db = get_db()
-    transactions = db.execute('SELECT * FROM transactions ORDER BY date DESC').fetchall()
+    conn = get_db_connection()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute('SELECT * FROM transactions ORDER BY date DESC')
+        transactions = cur.fetchall()
     
-    # Расчёт баланса: сумма доходов минус расходы
     balance = 0
     for t in transactions:
         if t['type'] == 'income':
             balance += t['amount']
         else:
             balance -= t['amount']
-    
+    conn.close()
     return render_template('index.html', transactions=transactions, balance=balance)
 
 @app.route('/add', methods=['POST'])
 def add_transaction():
-    """Добавляет новую транзакцию"""
     amount = float(request.form['amount'])
     description = request.form['description']
     trans_type = request.form['type']
     
-    db = get_db()
-    db.execute(
-        'INSERT INTO transactions (amount, description, type) VALUES (?, ?, ?)',
-        (amount, description, trans_type)
-    )
-    db.commit()
-    
+    conn = get_db_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO transactions (amount, description, type) VALUES (%s, %s, %s)',
+            (amount, description, trans_type)
+        )
+        conn.commit()
+    conn.close()
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
