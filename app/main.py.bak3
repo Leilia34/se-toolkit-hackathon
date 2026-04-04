@@ -190,10 +190,29 @@ def delete_transaction(id):
 def export_csv():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    trans_type = request.args.get('type', '')
+    category_filter = request.args.get('category', '')
+    
+    if not start_date or not end_date:
+        default_start, default_end = get_default_dates()
+        start_date = start_date or default_start
+        end_date = end_date or default_end
+    
     conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute('SELECT * FROM transactions WHERE user_id = %s ORDER BY date DESC', (session['user_id'],))
-    transactions = cur.fetchall()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    query = 'SELECT * FROM transactions WHERE user_id = %s AND date >= %s AND date <= %s'
+    params = [session['user_id'], start_date, end_date + ' 23:59:59']
+    if trans_type:
+        query += ' AND type = %s'
+        params.append(trans_type)
+    if category_filter:
+        query += ' AND category = %s'
+        params.append(category_filter)
+    query += ' ORDER BY date DESC'
+    cursor.execute(query, params)
+    transactions = cursor.fetchall()
     conn.close()
     
     si = StringIO()
