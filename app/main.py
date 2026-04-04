@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, redirect, url_for, Response
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import OperationalError
+from openai import OpenAI
 
 app = Flask(__name__)
 
@@ -161,6 +162,61 @@ def export_csv():
     output = si.getvalue()
     return Response(output, mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=transactions.csv'})
+
+# --- AI Assistant (Qwen) ---
+
+#@app.route('/api/advice')
+#def get_ai_advice():
+#    start_date, end_date = get_default_dates()
+#    conn = get_db_connection()
+#    cursor = conn.cursor(cursor_factory=RealDictCursor)
+#    cursor.execute("""
+#        SELECT date, description, amount, type, category
+#        FROM transactions
+#        WHERE date >= %s AND date <= %s
+#        ORDER BY date DESC
+#    """, (start_date, end_date))
+#    transactions = cursor.fetchall()
+#    conn.close()
+#
+#    if not transactions:
+#        return {"advice": "Пока нет данных для анализа. Добавьте несколько транзакций!"}
+#
+#    # Формируем текст транзакций для AI
+#    transaction_lines = []
+#    for t in transactions:
+#        date_str = t['date'].strftime('%d.%m.%Y')
+#        type_str = "Доход" if t['type'] == 'income' else "Расход"
+#        transaction_lines.append(f"- {date_str}: {t['description']} ({t['category']}) - {t['amount']}₽ ({type_str})")
+#    transaction_text = "\n".join(transaction_lines)
+#
+#    prompt = f"""Ты — персональный финансовый ассистент. Проанализируй список моих транзакций за последние 30 дней и дай краткие, полезные советы.
+#
+#Транзакции:
+#{transaction_text}
+#
+#Ответь в формате:
+#- Общая оценка ситуации (1-2 предложения).
+#- Топ-3 конкретных совета по оптимизации расходов.
+#- Один позитивный вывод.
+#"""
+#
+#    try:
+#        client = OpenAI(
+#            base_url="http://host.docker.internal:42005/v1",
+#            api_key=os.environ.get('QWEN_API_KEY', 'dummy')
+#        )
+#        response = client.chat.completions.create(
+#            model="coder-model",
+#            messages=[{"role": "user", "content": prompt}],
+#            temperature=0.7
+#        )
+#        advice = response.choices[0].message.content
+#    except Exception as e:
+#        print(f"Ошибка при обращении к Qwen: {e}")
+#        advice = "Не удалось получить совет от AI-ассистента. Убедитесь, что Qwen запущен на порту 7860."
+#
+#    return {"advice": advice}
 
 if __name__ == '__main__':
     init_db()

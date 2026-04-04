@@ -110,6 +110,12 @@
         }
         .delete-btn:hover { background-color: #c0392b; }
         canvas { max-width: 100%; margin-top: 30px; background: #fff; border-radius: 12px; padding: 10px; }
+        .ai-advice {
+            margin: 20px 0;
+            padding: 15px;
+            background: #e8f4fd;
+            border-radius: 12px;
+        }
         @media (max-width: 768px) {
             .filter-group { flex-direction: column; align-items: stretch; }
             .balance { position: static; margin-bottom: 20px; text-align: center; }
@@ -169,6 +175,8 @@
                 <button type="submit">Добавить</button>
             </div>
         </form>
+    </div>
+
     </div>
 
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -275,6 +283,15 @@
         data: { labels: labels, datasets: [{ label: 'Расходы по дням (₽)', data: data, backgroundColor: 'rgba(231, 76, 60, 0.6)', borderColor: '#c0392b', borderWidth: 1 }] },
         options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Сумма (₽)' } }, x: { title: { display: true, text: 'Дата' } } } }
     });
+
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('ai-advice-text').innerHTML = data.advice.replace(/\n/g, '<br>');
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            document.getElementById('ai-advice-text').innerText = 'Не удалось загрузить советы.';
+        });
 </script>
 </body>
 </html>

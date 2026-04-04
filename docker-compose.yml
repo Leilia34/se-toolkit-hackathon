@@ -24,5 +24,14 @@ services:
     volumes:
       - ./app:/app
 
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      DATABASE_URL: postgresql://tracker:tracker123@db:5432/expenses
+    depends_on:
+      - db
+
 volumes:
   postgres_data:
