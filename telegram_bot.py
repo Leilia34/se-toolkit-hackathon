@@ -68,11 +68,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/balance — Показать баланс\n"
         "/income сумма описание — Добавить доход\n"
         "/expense сумма описание — Добавить расход (или просто сумма описание)\n\n"
-        "💰 *Добавить расход:*\n"
-        "Просто напиши сумму и описание (без команды).\n"
+        "/link username пароль — Привязать Telegram к существующему аккаунту на сайте\n\n"
+        "💰 *Добавить расход:* просто напиши сумму и описание\n"
         "Пример: `300 такси`\n\n"
         "📈 *Доход:* `/income 5000 зарплата`\n\n"
-        "🌐 Веб-трекер: http://10.93.26.99:5002 (требуется логин/пароль, создаётся автоматически при первом входе через бота? нет, веб отдельно. Пока для входа в веб нужно регистрироваться отдельно.)"
+        "🌐 Веб-трекер: http://10.93.26.99:5002"
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -145,6 +145,47 @@ async def add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {e}")
 
+async def link_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Привязывает Telegram-аккаунт к существующему пользователю веб-трекера"""
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text(
+            "❌ Формат: /link username пароль\n"
+            "Используй те же имя пользователя и пароль, что и при регистрации на сайте."
+        )
+        return
+    username = args[0]
+    password = args[1]
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Проверяем пользователя по username и паролю
+    cur.execute("SELECT id, password_hash FROM users WHERE username = %s", (username,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        await update.message.reply_text("❌ Пользователь не найден. Зарегистрируйся сначала на сайте.")
+        return
+    user_id, password_hash = row
+    if not check_password_hash(password_hash, password):
+        cur.close()
+        conn.close()
+        await update.message.reply_text("❌ Неверный пароль.")
+        return
+    # Привязываем telegram_id к этому пользователю
+    telegram_id = update.effective_user.id
+    cur.execute("UPDATE users SET telegram_id = %s WHERE id = %s", (telegram_id, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    context.user_data['user_id'] = user_id
+    await update.message.reply_text(
+        f"✅ Аккаунт {username} успешно привязан к Telegram!\n"
+        "Теперь бот и сайт показывают одни и те же транзакции."
+    )
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'user_id' not in context.user_data:
         await update.message.reply_text("Сначала используй /start")
@@ -181,6 +222,7 @@ def main():
     app.add_handler(CommandHandler('balance', balance))
     app.add_handler(CommandHandler('income', add_income))
     app.add_handler(CommandHandler('expense', add_expense))
+    app.add_handler(CommandHandler('link', link_account))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("🤖 Бот запущен. Начинаем polling...")
     app.run_polling()
