@@ -18,19 +18,39 @@
             border-radius: 16px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 25px;
-            position: relative;
         }
-        h1 { color: #2c3e50; border-left: 5px solid #3498db; padding-left: 15px; margin-top: 0; margin-bottom: 20px; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        h1 { 
+            color: #2c3e50;
+            border-left: 5px solid #3498db;
+            padding-left: 15px;
+            margin: 0;
+        }
+        .user-info a {
+             background-color: #e74c3c;
+             color: white;
+             padding: 5px 10px;
+             border-radius: 8px;
+             text-decoration: none;
+             margin-left: 10px;
+        }
+        
         .balance {
-            position: absolute;
-            top: 25px;
-            right: 25px;
             font-size: 24px;
             font-weight: bold;
             background: #ecf0f1;
             padding: 10px 20px;
             border-radius: 12px;
+            display: inline-block;
+            margin-bottom: 20px;
         }
+
         .filters, .add-form {
             background: #f9f9f9;
             border-radius: 12px;
@@ -96,17 +116,23 @@
         }
         canvas { max-width: 100%; margin-top: 30px; background: #fff; border-radius: 12px; padding: 10px; }
         @media (max-width: 768px) {
-            .balance { position: static; margin-bottom: 20px; text-align: center; }
+            .header { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .filter-group { flex-direction: column; align-items: stretch; }
+             th, td { padding: 8px 4px; font-size: 12px; }
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div class="container">
-    <div style="text-align: right; margin-bottom: 10px;">
-        Привет, {{ session.username }} | <a href="/logout">Выйти</a>
+    <div class="header">
+        <h1>Финансовый трекер</h1>
+        <div class="user-info">
+            Привет, {{ session.username }}
+            <a href="/logout">Выйти</a>
+        </div>
     </div>
-    <h1>Финансовый трекер</h1>
+
     <div class="balance">
         Баланс: {{ balance }} ₽
     </div>

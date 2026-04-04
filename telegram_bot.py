@@ -69,6 +69,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/income сумма описание — Добавить доход\n"
         "/expense сумма описание — Добавить расход (или просто сумма описание)\n\n"
         "/link username пароль — Привязать Telegram к существующему аккаунту на сайте\n\n"
+        "/logout — Отвязать Telegram-аккаунт и выйти\n\n"
         "💰 *Добавить расход:* просто напиши сумму и описание\n"
         "Пример: `300 такси`\n\n"
         "📈 *Доход:* `/income 5000 зарплата`\n\n"
@@ -186,6 +187,23 @@ async def link_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Теперь бот и сайт показывают одни и те же транзакции."
     )
 
+async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отвязывает Telegram-аккаунт от пользователя и очищает сессию"""
+    telegram_id = update.effective_user.id
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Удаляем привязку telegram_id в БД
+    cur.execute("UPDATE users SET telegram_id = NULL WHERE telegram_id = %s", (telegram_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    # Очищаем данные в памяти бота
+    if 'user_id' in context.user_data:
+        del context.user_data['user_id']
+    await update.message.reply_text(
+        "✅ Вы вышли из аккаунта. Чтобы снова привязать бота, используйте /link или /start."
+    )
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'user_id' not in context.user_data:
         await update.message.reply_text("Сначала используй /start")
@@ -223,6 +241,7 @@ def main():
     app.add_handler(CommandHandler('income', add_income))
     app.add_handler(CommandHandler('expense', add_expense))
     app.add_handler(CommandHandler('link', link_account))
+    app.add_handler(CommandHandler('logout', logout))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("🤖 Бот запущен. Начинаем polling...")
     app.run_polling()
