@@ -3,19 +3,19 @@ import time
 import csv
 from io import StringIO
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, Response
+from flask import Flask, render_template, request, redirect, url_for, Response, session, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import OperationalError
-from openai import OpenAI
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-change-me')
 
 def get_db_connection():
-    conn = psycopg2.connect(
+    return psycopg2.connect(
         os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@db:5432/expenses')
     )
-    return conn
 
 def init_db(retries=5, delay=3):
     for i in range(retries):
@@ -23,8 +23,18 @@ def init_db(retries=5, delay=3):
             conn = get_db_connection()
             with conn.cursor() as cur:
                 cur.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        telegram_id BIGINT UNIQUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                cur.execute('''
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
                         amount REAL NOT NULL,
                         description TEXT NOT NULL,
                         type TEXT CHECK(type IN ('income', 'expense')) NOT NULL,
@@ -49,6 +59,9 @@ def get_default_dates():
 
 @app.route('/')
 def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
     trans_type = request.args.get('type', '')
@@ -63,8 +76,8 @@ def index():
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    query = 'SELECT * FROM transactions WHERE date >= %s AND date <= %s'
-    params = [start_date, end_date + ' 23:59:59']
+    query = 'SELECT * FROM transactions WHERE user_id = %s AND date >= %s AND date <= %s'
+    params = [session['user_id'], start_date, end_date + ' 23:59:59']
     
     if trans_type:
         query += ' AND type = %s'
@@ -95,8 +108,57 @@ def index():
                            selected_category=category_filter,
                            today=datetime.now().date().isoformat())
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if not username or not password:
+            flash('Username and password required')
+            return redirect(url_for('register'))
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute('INSERT INTO users (username, password_hash) VALUES (%s, %s)',
+                       (username, generate_password_hash(password)))
+            conn.commit()
+            flash('Registration successful. Please log in.')
+            return redirect(url_for('login'))
+        except Exception as e:
+            flash('Username already exists')
+        finally:
+            cur.close()
+            conn.close()
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM users WHERE username = %s', (username,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+        if user and check_password_hash(user['password_hash'], password):
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password')
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/add', methods=['POST'])
 def add_transaction():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     amount = float(request.form['amount'])
     description = request.form['description']
     trans_type = request.form['type']
@@ -106,8 +168,8 @@ def add_transaction():
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute(
-            'INSERT INTO transactions (amount, description, type, category, date) VALUES (%s, %s, %s, %s, %s)',
-            (amount, description, trans_type, category, transaction_date)
+            'INSERT INTO transactions (user_id, amount, description, type, category, date) VALUES (%s, %s, %s, %s, %s, %s)',
+            (session['user_id'], amount, description, trans_type, category, transaction_date)
         )
         conn.commit()
     conn.close()
@@ -115,15 +177,19 @@ def add_transaction():
 
 @app.route('/delete/<int:id>')
 def delete_transaction(id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     conn = get_db_connection()
     with conn.cursor() as cur:
-        cur.execute('DELETE FROM transactions WHERE id = %s', (id,))
+        cur.execute('DELETE FROM transactions WHERE id = %s AND user_id = %s', (id, session['user_id']))
         conn.commit()
     conn.close()
     return redirect(url_for('index', **request.args))
 
 @app.route('/export/csv')
 def export_csv():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
     trans_type = request.args.get('type', '')
@@ -136,8 +202,8 @@ def export_csv():
     
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    query = 'SELECT * FROM transactions WHERE date >= %s AND date <= %s'
-    params = [start_date, end_date + ' 23:59:59']
+    query = 'SELECT * FROM transactions WHERE user_id = %s AND date >= %s AND date <= %s'
+    params = [session['user_id'], start_date, end_date + ' 23:59:59']
     if trans_type:
         query += ' AND type = %s'
         params.append(trans_type)
@@ -155,68 +221,12 @@ def export_csv():
     writer.writerow(['ID', 'Сумма', 'Описание', 'Тип', 'Категория', 'Дата'])
     for t in transactions:
         date_str = t['date'].strftime('%d.%m.%Y %H:%M') if isinstance(t['date'], datetime) else str(t['date'])
-        writer.writerow([t['id'], t['amount'], t['description'], 
+        writer.writerow([t['id'], t['amount'], t['description'],
                          'Доход' if t['type'] == 'income' else 'Расход',
                          t['category'], date_str])
-    
     output = si.getvalue()
     return Response(output, mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=transactions.csv'})
-
-# --- AI Assistant (Qwen) ---
-
-#@app.route('/api/advice')
-#def get_ai_advice():
-#    start_date, end_date = get_default_dates()
-#    conn = get_db_connection()
-#    cursor = conn.cursor(cursor_factory=RealDictCursor)
-#    cursor.execute("""
-#        SELECT date, description, amount, type, category
-#        FROM transactions
-#        WHERE date >= %s AND date <= %s
-#        ORDER BY date DESC
-#    """, (start_date, end_date))
-#    transactions = cursor.fetchall()
-#    conn.close()
-#
-#    if not transactions:
-#        return {"advice": "Пока нет данных для анализа. Добавьте несколько транзакций!"}
-#
-#    # Формируем текст транзакций для AI
-#    transaction_lines = []
-#    for t in transactions:
-#        date_str = t['date'].strftime('%d.%m.%Y')
-#        type_str = "Доход" if t['type'] == 'income' else "Расход"
-#        transaction_lines.append(f"- {date_str}: {t['description']} ({t['category']}) - {t['amount']}₽ ({type_str})")
-#    transaction_text = "\n".join(transaction_lines)
-#
-#    prompt = f"""Ты — персональный финансовый ассистент. Проанализируй список моих транзакций за последние 30 дней и дай краткие, полезные советы.
-#
-#Транзакции:
-#{transaction_text}
-#
-#Ответь в формате:
-#- Общая оценка ситуации (1-2 предложения).
-#- Топ-3 конкретных совета по оптимизации расходов.
-#- Один позитивный вывод.
-#"""
-#
-#    try:
-#        client = OpenAI(
-#            base_url="http://host.docker.internal:42005/v1",
-#            api_key=os.environ.get('QWEN_API_KEY', 'dummy')
-#        )
-#        response = client.chat.completions.create(
-#            model="coder-model",
-#            messages=[{"role": "user", "content": prompt}],
-#            temperature=0.7
-#        )
-#        advice = response.choices[0].message.content
-#    except Exception as e:
-#        print(f"Ошибка при обращении к Qwen: {e}")
-#        advice = "Не удалось получить совет от AI-ассистента. Убедитесь, что Qwen запущен на порту 7860."
-#
-#    return {"advice": advice}
 
 if __name__ == '__main__':
     init_db()

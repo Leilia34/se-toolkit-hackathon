@@ -49,6 +49,30 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+async def income(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text(
+                "❌ Формат: /income сумма описание\n"
+                "Пример: /income 5000 зарплата"
+            )
+            return
+        amount = float(args[0])
+        description = " ".join(args[1:])
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO transactions (amount, description, type, category, date) VALUES (%s, %s, %s, %s, %s)",
+            (amount, description, 'income', 'telegram', datetime.now().date())
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        await update.message.reply_text(f"✅ Доход {amount}₽ на '{description}' записан.")
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     parts = text.split(maxsplit=1)
@@ -79,6 +103,7 @@ def main():
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CommandHandler('balance', balance))
+    app.add_handler(CommandHandler('income', income))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("🤖 Бот запущен. Начинаем polling...")
     app.run_polling()

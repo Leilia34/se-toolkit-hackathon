@@ -126,6 +126,9 @@
 </head>
 <body>
 <div class="container">
+    <div style="text-align: right; margin-bottom: 10px;">
+    Привет, {{ session.username }} | <a href="/logout">Выйти</a>
+    </div>
     <h1>Финансовый трекер</h1>
     <div class="balance">
         Баланс: {{ balance }} ₽
