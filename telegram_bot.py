@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 BOT_TOKEN = "8660176046:AAFgh3bPfUtm8EINKtqxSZOLXs5x2iOV6Iw"
 
 def get_db_connection():
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@db:5432/expenses')
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://tracker:tracker123@localhost:5432/expenses')
     return psycopg2.connect(DATABASE_URL)
 
 # Инициализация таблиц (если нет)
@@ -90,7 +90,7 @@ def get_or_create_user(telegram_id, username=None):
             user_id = cur.fetchone()[0]
             conn.commit()
             # Создаём кошелёк по умолчанию
-            cur.execute("INSERT INTO wallets (user_id, name) VALUES (%s, %s)", (user_id, 'Личный'))
+            cur.execute("INSERT INTO wallets (user_id, name) VALUES (%s, %s)", (user_id, 'Personal'))
             conn.commit()
             cur.close()
             conn.close()
@@ -99,7 +99,7 @@ def get_or_create_user(telegram_id, username=None):
             continue
     raise Exception("Could not create user")
 def get_current_wallet(telegram_id):
-    """Возвращает wallet_id, который пользователь выбрал последним (хранится в БД или в context). Упростим: пока в памяти бота."""
+    """Returns wallet_id, that user chose (is in the DB or context)."""
     # Здесь можно хранить в таблице user_settings, но для простоты используем глобальный словарь
     if not hasattr(get_current_wallet, 'cache'):
         get_current_wallet.cache = {}
@@ -127,6 +127,35 @@ def set_current_wallet(telegram_id, wallet_id):
         get_current_wallet.cache = {}
     get_current_wallet.cache[telegram_id] = wallet_id
 
+def link_existing_user(telegram_id, username, password):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Сначала проверим, не привязан ли уже этот telegram_id к кому-то
+    cur.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
+    existing = cur.fetchone()
+    if existing:
+        # Если уже привязан, отвяжем старого пользователя
+        cur.execute("UPDATE users SET telegram_id = NULL WHERE telegram_id = %s", (telegram_id,))
+        conn.commit()
+    # Теперь ищем пользователя по username и паролю
+    cur.execute("SELECT id, password_hash FROM users WHERE username = %s", (username,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        return None, "User not found"
+    user_id, password_hash = row
+    if not check_password_hash(password_hash, password):
+        cur.close()
+        conn.close()
+        return None, "Wrong password"
+    # Привязываем telegram_id
+    cur.execute("UPDATE users SET telegram_id = %s WHERE id = %s", (telegram_id, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return user_id, "Successfully linked"
+
 async def wallets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     conn = get_db_connection()
@@ -140,9 +169,9 @@ async def wallets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
     if not wallets:
-        await update.message.reply_text("У вас нет кошельков. Создайте первый командой /create_wallet <название>")
+        await update.message.reply_text("You do not have wallets. Create one with command /create_wallet <name>")
         return
-    text = "Ваши кошельки:\n"
+    text = "Your wallets:\n"
     keyboard = []
     for wid, name in wallets:
         text += f"• {name}\n"
@@ -155,12 +184,12 @@ async def switch_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wallet_id = int(query.data.split('_')[1])
     telegram_id = query.from_user.id
     set_current_wallet(telegram_id, wallet_id)
-    await query.edit_message_text(f"✅ Переключено на кошелёк {query.data.split('_')[1]}")
+    await query.edit_message_text(f"✅ Switched to the wallet {query.data.split('_')[1]}")
 
 async def create_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text("❌ Используй: /create_wallet <название>")
+        await update.message.reply_text("❌ Use: /create_wallet <name>")
         return
     name = args[0]
     telegram_id = update.effective_user.id
@@ -169,7 +198,7 @@ async def create_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
     user = cur.fetchone()
     if not user:
-        await update.message.reply_text("Сначала используй /start")
+        await update.message.reply_text("Firstly use /start")
         cur.close()
         conn.close()
         return
@@ -177,37 +206,33 @@ async def create_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         cur.execute("INSERT INTO wallets (user_id, name) VALUES (%s, %s)", (user_id, name))
         conn.commit()
-        await update.message.reply_text(f"✅ Кошелёк '{name}' создан. Используй /wallets для переключения.")
+        await update.message.reply_text(f"✅ Wallet '{name}' created. Use /wallets for switching.")
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: возможно, кошелёк с таким именем уже существует.")
+        await update.message.reply_text(f"Error: possibly wallet with this name already exists.")
     finally:
         cur.close()
         conn.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    user_id = get_or_create_user(telegram_id, update.effective_user.username)
-    # Устанавливаем кошелёк по умолчанию (первый)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM wallets WHERE user_id = %s ORDER BY id LIMIT 1", (user_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if row:
-        set_current_wallet(telegram_id, row[0])
     await update.message.reply_text(
-        "🌟 Добро пожаловать в многокошелёчный финансовый трекер!\n"
-        "Команды:\n/wallets — показать кошельки\n/create_wallet <название> — создать новый\n"
-        "/balance — баланс текущего кошелька\n/income сумма описание — доход\n/expense сумма описание — расход\n"
-        "Просто сумма описание — расход\n/link username пароль — привязать к веб-аккаунту\n/logout — отвязать\n/help — помощь"
+        "🌟 Hi! I am a finance bot that supports several wallets.\n\n"
+        "To start use command:\n"
+        "/link <username> <password> — link Telegram to already existing account in the website.\n\n"
+        "You don't have an account, registrate in the site:\n"
+        "http://10.93.26.99:5002/register\n\n"
+        "After linking these command will be available:\n"
+        "/balance — balance of your current wallet\n"
+        "/income сумма описание — add income\n"
+        "/expense сумма описание — add expenxe\n"
+        "/wallets — show wallets\n"
+        "/create_wallet <name> — create new wallet\n"
+        "/logout — logout in Telegram"
     )
-
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     wallet_id = get_current_wallet(telegram_id)
     if not wallet_id:
-        await update.message.reply_text("Сначала создайте кошелёк (/create_wallet) или выберите /wallets")
+        await update.message.reply_text("First create a wallet (/create_wallet) or select /wallets")
         return
     conn = get_db_connection()
     cur = conn.cursor()
@@ -218,17 +243,17 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = income - expense
     cur.close()
     conn.close()
-    await update.message.reply_text(f"💰 Баланс: {total} ₽\n📈 Доходы: {income} ₽\n📉 Расходы: {expense} ₽")
+    await update.message.reply_text(f"💰 Balance: {total} ₽\n📈 Income: {income} ₽\n📉 Expense: {expense} ₽")
 
 async def add_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     wallet_id = get_current_wallet(telegram_id)
     if not wallet_id:
-        await update.message.reply_text("Сначала создайте кошелёк (/create_wallet)")
+        await update.message.reply_text("First create a wallet (/create_wallet)")
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Формат: /income сумма описание")
+        await update.message.reply_text("Format: /income amount description")
         return
     amount = float(args[0])
     description = " ".join(args[1:])
@@ -239,17 +264,17 @@ async def add_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     cur.close()
     conn.close()
-    await update.message.reply_text(f"✅ Доход {amount}₽ на '{description}' записан.")
+    await update.message.reply_text(f"✅ Income {amount}₽ for "{description}" recorded.")
 
 async def add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     wallet_id = get_current_wallet(telegram_id)
     if not wallet_id:
-        await update.message.reply_text("Сначала создайте кошелёк (/create_wallet)")
+        await update.message.reply_text("First create a wallet (/create_wallet)")
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Формат: /expense сумма описание")
+        await update.message.reply_text("Format: /expense amount description")
         return
     amount = float(args[0])
     description = " ".join(args[1:])
@@ -260,13 +285,13 @@ async def add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     cur.close()
     conn.close()
-    await update.message.reply_text(f"✅ Расход {amount}₽ на '{description}' записан.")
+    await update.message.reply_text(f"✅ Expense {amount}₽ for "{description}" recorded.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     wallet_id = get_current_wallet(telegram_id)
     if not wallet_id:
-        await update.message.reply_text("Сначала создайте кошелёк (/create_wallet) или выберите /wallets")
+        await update.message.reply_text("First create a wallet (/create_wallet) or select /wallets")
         return
     text = update.message.text.strip()
     parts = text.split(maxsplit=1)
@@ -280,9 +305,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         cur.close()
         conn.close()
-        await update.message.reply_text(f"✅ Расход {amount}₽ на '{description}' записан.")
+        await update.message.reply_text(f"✅ Expense {amount}₽ for "{description}" recorded.")
     else:
-        await update.message.reply_text("Не понял. Используй /help")
+        await update.message.reply_text("Invalid. Use /help")
 
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
@@ -294,11 +319,11 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     if hasattr(get_current_wallet, 'cache') and telegram_id in get_current_wallet.cache:
         del get_current_wallet.cache[telegram_id]
-    await update.message.reply_text("✅ Вы вышли. Для входа используйте /start.")
+    await update.message.reply_text("✅ Logged out. Use /start to log in.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📋 *Команды:*\n"
+        "📋 *Commands:*\n"
         "/start — начать\n"
         "/wallets — показать кошельки\n"
         "/create_wallet <название> — создать кошелёк\n"
@@ -311,6 +336,37 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+def get_or_create_default_wallet(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM wallets WHERE user_id = %s LIMIT 1", (user_id,))
+    row = cur.fetchone()
+    if row:
+        wallet_id = row[0]
+    else:
+        cur.execute("INSERT INTO wallets (user_id, name) VALUES (%s, %s) RETURNING id", (user_id, 'Personal'))
+        wallet_id = cur.fetchone()[0]
+        conn.commit()
+    cur.close()
+    conn.close()
+    return wallet_id
+
+async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text("❌ Формат: /link username пароль")
+        return
+    username, password = args[0], args[1]
+    telegram_id = update.effective_user.id
+    user_id, msg = link_existing_user(telegram_id, username, password)
+    if user_id:
+        context.user_data['user_id'] = user_id
+        wallet_id = get_or_create_default_wallet(user_id)
+        set_current_wallet(telegram_id, wallet_id)
+        await update.message.reply_text(f"✅ {msg}. Теперь используй /balance")
+    else:
+        await update.message.reply_text(f"❌ {msg}")
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
@@ -321,6 +377,7 @@ def main():
     app.add_handler(CommandHandler('wallets', wallets_command))
     app.add_handler(CommandHandler('create_wallet', create_wallet))
     app.add_handler(CommandHandler('logout', logout))
+    app.add_handler(CommandHandler('link', link_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(switch_wallet, pattern='^switch_'))
     print("🤖 Бот с поддержкой нескольких кошельков запущен")
