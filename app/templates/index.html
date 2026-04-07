@@ -205,7 +205,13 @@
             </tbody>
         </table>
     </div>
-
+    <div style="margin: 20px 0 10px;">
+        <label>Показать на графике: </label>
+	<select id="chartType">
+            <option value="expense">Расходы</option>
+            <option value="income">Доходы</option>
+        </select>
+    </div>
     <canvas id="expenseChart" width="800" height="300"></canvas>
 </div>
 
@@ -268,21 +274,44 @@
     updateFilterCategories();
 
     const transactions = {{ transactions | tojson }};
-    const expensesByDate = {};
-    transactions.forEach(t => {
-        if (t.type === 'expense') {
-            const date = t.date.split(' ')[0];
-            expensesByDate[date] = (expensesByDate[date] || 0) + t.amount;
-        }
-    });
-    const labels = Object.keys(expensesByDate).sort();
-    const data = labels.map(d => expensesByDate[d]);
-    const ctx = document.getElementById('expenseChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: { labels: labels, datasets: [{ label: 'Расходы по дням (₽)', data: data, backgroundColor: 'rgba(231, 76, 60, 0.6)', borderColor: '#c0392b', borderWidth: 1 }] },
-        options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Сумма (₽)' } }, x: { title: { display: true, text: 'Дата' } } } }
-    });
+    let currentChart = null;
+
+    function renderChart(type) {
+        const dataByDate = {};
+        transactions.forEach(t => {
+            if (t.type === type) {
+                const date = t.date.split(' ')[0];
+                dataByDate[date] = (dataByDate[date] || 0) + t.amount;
+            }
+        });
+        const labels = Object.keys(dataByDate).sort();
+        const data = labels.map(d => dataByDate[d]);
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        if (currentChart) currentChart.destroy();
+        currentChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: type === 'income' ? 'Доходы (₽)' : 'Расходы (₽)',
+                    data: data,
+                    backgroundColor: type === 'income' ? 'rgba(54, 162, 235, 0.6)' : 'rgba(231, 76, 60, 0.6)',
+                    borderColor: type === 'income' ? 'rgba(54, 162, 235, 1)' : 'rgba(231, 76, 60, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Сумма (₽)' } },
+                    x: { title: { display: true, text: 'Дата' } }
+                }
+            }
+        });
+    }
+
+    document.getElementById('chartType').addEventListener('change', (e) => renderChart(e.target.value));
+    renderChart('expense');
 </script>
 </body>
 </html>
