@@ -1,44 +1,73 @@
-# Expense Tracker
+# Finance Tracker
 
 ## One-line description
-Веб-приложение для учёта личных доходов и расходов с отображением баланса.
+A multi-user web application and Telegram bot for tracking personal income and expenses with multi-wallet support, charts, and CSV export.
 
 ## Demo
-![Screenshot](screenshot.png)  <!-- потом добавите скриншот -->
-
+## Demo
+![Main web interface](main-page.png)
+![Chart with income/expense toggle](chart-income-expense.png)
+![Telegram bot](telegram-bot.png)
 ## Product context
-- **End users**: Люди, которые хотят контролировать свои финансы.
-- **Problem**: Сложно отслеживать, куда уходят деньги, и быстро узнать текущий баланс.
-- **Your solution**: Простой веб-интерфейс для добавления транзакций (доход/расход) и автоматического подсчёта баланса.
+- **End users**: Individuals who want to manage their personal finances.
+- **Problem**: It's hard to track where money goes and get a quick overview of balance and spending habits.
+- **Your solution**: A simple web interface and a Telegram bot to add income/expense, view filtered transaction history, see charts, and export data.
 
 ## Features
 ### Implemented
-- [x] Добавление транзакции (сумма, описание, тип: доход/расход)
-- [x] Отображение списка всех транзакций
-- [x] Автоматический расчёт баланса
+- User registration and login (multi-user, isolated data)
+- Add income and expense transactions with categories and custom date
+- View transaction table and current balance
+- Filter transactions by date range, type (income/expense), and category
+- Interactive chart (toggle between income and expense)
+- Delete transactions
+- Export filtered transactions to CSV
+- Docker containerization (web + PostgreSQL + bot)
+- Telegram bot with commands:
+  - `/balance` – show current balance
+  - `/income <amount> <description>` – add income
+  - `/expense <amount> <description>` – add expense
+  - `/wallets` – list wallets
+  - `/create_wallet <name>` – create a new wallet
+  - `/link <username> <password>` – link Telegram to web account
+  - `/logout` – unlink Telegram
+  - Quick expense: just type `<amount> <description>`
+- Multi-wallet support (one Telegram account can manage several independent wallets)
 
 ### Not yet implemented
-- [ ] Категории расходов
-- [ ] Фильтрация по дате
-- [ ] Графики расходов
-- [ ] Удаление/редактирование транзакций
+- Editing transactions
+- Budget limits and notifications
 
 ## Usage
-1. Откройте браузер и перейдите по адресу `http://<IP-вашей-ВМ>:5000`
-2. Заполните форму "Add transaction" (сумма, описание, тип)
-3. Нажмите "Add" – транзакция появится в таблице
-4. Баланс обновляется автоматически
+1. Open the web app at `http://<your-vm-ip>:5002`
+2. Register a new account or log in.
+3. Add income/expense using the form.
+4. Use filters to view specific transactions.
+5. Switch chart between income and expense.
+6. Use the Telegram bot: send `/start`, then `/link <web_username> <web_password>`, then start adding transactions.
 
 ## Deployment
-- **OS**: Ubuntu 24.04
-- **Requirements**: Python 3.10+, pip, SQLite (встроен)
+- **OS**: Ubuntu 24.04 (or any Linux with Docker)
+- **Requirements**: Docker, Docker Compose
 
-### Manual setup (without Docker)
+### Step-by-step deployment
 ```bash
-git clone git@github.com:Leilia34/se-toolkit-hackathon.git
+git clone https://github.com/Leilia34/se-toolkit-hackathon.git
 cd se-toolkit-hackathon
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python app/main.py
+docker-compose up -d --build
+The web app will be available at http://localhost:5002 (or your VM IP).
+The Telegram bot will start automatically.
 
+Technologies
+Backend: Flask (Python)
+
+Database: PostgreSQL
+
+Frontend: HTML, CSS, JavaScript (Chart.js)
+
+Bot: python-telegram-bot
+
+Containerization: Docker, Docker Compose
+
+License
+MIT
